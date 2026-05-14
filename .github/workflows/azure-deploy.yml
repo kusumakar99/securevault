@@ -1,0 +1,57 @@
+name: Build and deploy to Azure App Service
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AZURE_WEBAPP_NAME: securevault-app
+  NODE_VERSION: '20.x'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install root deps
+        run: npm install --no-audit --no-fund --ignore-scripts
+
+      - name: Install server deps (production)
+        working-directory: ./server
+        run: npm install --omit=dev --no-audit --no-fund
+
+      - name: Install client deps and build
+        working-directory: ./client
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+
+      - name: Prepare deployment package
+        run: |
+          mkdir -p deploy/server
+          cp -r server/src deploy/server/
+          cp -r server/node_modules deploy/server/
+          cp server/package.json deploy/server/
+          mkdir -p deploy/client
+          cp -r client/dist deploy/client/
+          cp package.json deploy/
+          cd deploy && zip -r ../release.zip .
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          package: release.zip
