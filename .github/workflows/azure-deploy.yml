@@ -24,9 +24,15 @@ jobs:
       - name: Install root deps
         run: npm install --no-audit --no-fund --ignore-scripts
 
-      - name: Install server deps (production)
-        working-directory: ./server
-        run: npm install --omit=dev --no-audit --no-fund
+      - name: Install server deps standalone (avoid workspace hoisting)
+        run: |
+          cp -r server /tmp/server-build
+          # Remove workspace package.json so npm doesn't hoist
+          rm -f /tmp/server-build/../package.json 2>/dev/null || true
+          cd /tmp/server-build
+          npm install --omit=dev --no-audit --no-fund
+          mkdir -p ../../home/runner/work/securevault/securevault/server
+          cp -r node_modules $GITHUB_WORKSPACE/server/node_modules
 
       - name: Install client deps and build
         working-directory: ./client
@@ -43,7 +49,8 @@ jobs:
           mkdir -p deploy/client
           cp -r client/dist deploy/client/
           cp package.json deploy/
-          cd deploy && zip -r ../release.zip .
+          cd deploy && zip -rq ../release.zip .
+          ls -la ../release.zip
 
       - name: Login to Azure
         uses: azure/login@v2
