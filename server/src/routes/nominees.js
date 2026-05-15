@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
+import rateLimit from 'express-rate-limit';
 import { getDb } from '../models/database.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { generateAccessCode, hashPassword, verifyPassword } from '../utils/encryption.js';
@@ -7,6 +8,16 @@ import { auditLog } from '../middleware/audit.js';
 import { sendEmail } from '../services/email.js';
 
 const router = Router();
+
+const DENIAL_COOLDOWN_DAYS = parseInt(process.env.DMS_DENIAL_COOLDOWN_DAYS || '30');
+
+const activateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many activation attempts. Try again later.' },
+});
 
 // --- Owner: List nominees ---
 router.get('/', authMiddleware, (req, res) => {
@@ -70,7 +81,7 @@ router.delete('/:id', authMiddleware, (req, res) => {
 });
 
 // --- Public: Nominee activates access (Dead Man's Switch trigger) ---
-router.post('/activate', async (req, res) => {
+router.post('/activate', activateLimiter, async (req, res) => {
   try {
     const { accessCode, email } = req.body;
     if (!accessCode || !email) {
@@ -102,6 +113,22 @@ router.post('/activate', async (req, res) => {
 
     if (existingRequest) {
       return res.status(409).json({ error: 'An access request is already pending', requestId: existingRequest.id });
+    }
+
+    // Enforce cooldown after a denial to prevent abuse / repeated DMS retriggering
+    const cooldownCutoff = new Date(Date.now() - DENIAL_COOLDOWN_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const recentDenial = db.prepare(
+      "SELECT id, responded_at FROM access_requests WHERE nominee_id = ? AND status = 'denied' AND responded_at >= ? ORDER BY responded_at DESC LIMIT 1"
+    ).get(matchedNominee.id, cooldownCutoff);
+
+    if (recentDenial) {
+      auditLog(matchedNominee.owner_id, matchedNominee.email, 'access_request_blocked_cooldown', {
+        nomineeId: matchedNominee.id,
+        lastDeniedAt: recentDenial.responded_at,
+      }, req.ip);
+      return res.status(429).json({
+        error: `A previous request was denied. You may try again after ${DENIAL_COOLDOWN_DAYS} days or ask the vault owner to reset your access.`,
+      });
     }
 
     // Create access request

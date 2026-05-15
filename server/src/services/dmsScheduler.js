@@ -69,8 +69,8 @@ async function checkPendingRequests() {
     }
 
     // Send reminders for requests approaching deadline
-    const initialWaitDays = parseInt(process.env.DMS_INITIAL_WAIT_DAYS || '7');
-    const reminderThreshold = new Date(Date.now() + initialWaitDays * 24 * 60 * 60 * 1000).toISOString();
+    const reminderLeadDays = parseInt(process.env.DMS_INITIAL_WAIT_DAYS || '7');
+    const reminderThreshold = new Date(Date.now() + reminderLeadDays * 24 * 60 * 60 * 1000).toISOString();
 
     const pendingRequests = db.prepare(`
       SELECT ar.*, n.name as nominee_name, u.email as owner_email, u.name as owner_name
