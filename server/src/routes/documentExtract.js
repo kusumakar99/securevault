@@ -57,8 +57,8 @@ router.post('/real_estate', extractLimiter, (req, res, next) => {
       return res.status(400).json({ error: 'No files uploaded' });
     }
 
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(503).json({ error: 'Document extraction not configured. GEMINI_API_KEY is required.' });
+    if (!process.env.AZURE_OPENAI_ENDPOINT || !process.env.AZURE_OPENAI_KEY || !process.env.AZURE_OPENAI_DEPLOYMENT) {
+      return res.status(503).json({ error: 'Document extraction not configured. Azure OpenAI (AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_KEY, AZURE_OPENAI_DEPLOYMENT) is required.' });
     }
 
     const extracted = await extractPropertyDetails(req.files);
